@@ -25,16 +25,16 @@ def nmse(gt, pred):
 def psnr(gt, pred):
     """ Compute Peak Signal to Noise Ratio metric (PSNR) """
     return compare_psnr(gt, pred, data_range=gt.max())
-
-def psnr1(gt, pred):
-    """ Compute Peak Signal to Noise Ratio metric (PSNR) """
-    gt = gt - gt.min()
-    gt = gt / gt.max()
-
-    pred = pred - pred.min()
-    pred = pred / pred.max()
-
-    return compare_psnr(gt, pred, data_range=gt.max())
+#
+# def psnr1(gt, pred):
+#     """ Compute Peak Signal to Noise Ratio metric (PSNR) """
+#     gt = gt - gt.min()
+#     gt = gt / gt.max()
+#
+#     pred = pred - pred.min()
+#     pred = pred / pred.max()
+#
+#     return compare_psnr(gt, pred, data_range=gt.max())
 
 
 def ssim(gt, pred):
@@ -42,12 +42,12 @@ def ssim(gt, pred):
     return compare_ssim(
         gt.transpose(1, 2, 0), pred.transpose(1, 2, 0), multichannel=True, data_range=gt.max()
     )
-
-def ssim1(gt, pred):
-    """ Compute Structural Similarity Index Metric (SSIM). """
-    return compare_ssim(
-        gt, pred, multichannel=True, data_range=gt.max()
-    )
+#
+# def ssim1(gt, pred):
+#     """ Compute Structural Similarity Index Metric (SSIM). """
+#     return compare_ssim(
+#         gt, pred, multichannel=True, data_range=gt.max()
+#     )
 
 METRIC_FUNCS = dict(
     MSE=mse,

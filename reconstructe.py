@@ -85,6 +85,7 @@ def eval(args, model, data_loader):
 
 def reconstructe():
     args = create_arg_parser().parse_args(sys.argv[1:])
+    # args.checkpoint = f'summary/{args.test_name}/best_model.pt' # problamtic when using TSP
     args.checkpoint = f'summary/{args.test_name}/model.pt'
     args.out_dir = f'summary/{args.test_name}/rec'
 
