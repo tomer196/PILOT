@@ -4,7 +4,7 @@ This repository contains a PyTorch implementation of the paper:
 
 [PILOT: Physics-Informed Learned Optimal Trajectories for Accelerated MRI](https://arxiv.org/abs/1909.05773).
 
-[Tomer Weiss](tomer196@gmail.com), Ortal Senouf, Sanketh Vedula, Oleg Michailovich, Michael Zibulevsky, Alex Bronstein
+Tomer Weiss (<tomer196@gmail.com>), Ortal Senouf, Sanketh Vedula, Oleg Michailovich, Michael Zibulevsky, Alex Bronstein
 
 ![teaser](teaser.png)
 
