@@ -6,7 +6,7 @@ This repository contains a PyTorch implementation of the paper:
 
 Tomer Weiss (<tomer196@gmail.com>), Ortal Senouf, Sanketh Vedula, Oleg Michailovich, Michael Zibulevsky, Alex Bronstein
 
-![teaser](teaser.png)
+![teaser](teaser.PNG)
 
 ## Introduction
 
