@@ -6,7 +6,9 @@ This repository contains a PyTorch implementation of the paper:
 
 Tomer Weiss (<tomer196@gmail.com>), Ortal Senouf, Sanketh Vedula, Oleg Michailovich, Michael Zibulevsky, Alex Bronstein
 
-![teaser](teaser.PNG)
+<p align="center">
+       <img src="teaser.PNG">
+</p>
 
 ## Introduction
 
@@ -40,10 +42,10 @@ Please cite our work if you find this approach useful in your research:
 @ARTICLE{weiss2019pilot,
        author = {{Weiss}, Tomer and {Senouf}, Ortal and {Vedula}, Sanketh and
          {Michailovich}, Oleg and {Zibulevsky}, Michael and {Bronstein}, Alex},
-        title = "{PILOT: Physics-Informed Learned Optimal Trajectories for Accelerated MRI}",
-      journal = {arXiv e-prints},
-         year = "2019",
-archivePrefix = {arXiv},
+       title = "{PILOT: Physics-Informed Learned Optimal Trajectories for Accelerated MRI}",
+       journal = {arXiv e-prints},
+       year = "2019",
+       archivePrefix = {arXiv},
        eprint = {1909.05773},
 }
 ```
