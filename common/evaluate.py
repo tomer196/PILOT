@@ -12,7 +12,7 @@ import numpy as np
 from runstats import Statistics
 from skimage.measure import compare_psnr, compare_ssim
 import sys
-sys.path.insert(0,'/home/aditomer/PILOT')
+sys.path.insert(0,'/home/tomerweiss/PILOT')
 
 def mse(gt, pred):
     """ Compute Mean Squared Error (MSE) """
@@ -26,10 +26,27 @@ def psnr(gt, pred):
     """ Compute Peak Signal to Noise Ratio metric (PSNR) """
     return compare_psnr(gt, pred, data_range=gt.max())
 
+def psnr1(gt, pred):
+    """ Compute Peak Signal to Noise Ratio metric (PSNR) """
+    gt = gt - gt.min()
+    gt = gt / gt.max()
+
+    pred = pred - pred.min()
+    pred = pred / pred.max()
+
+    return compare_psnr(gt, pred, data_range=gt.max())
+
+
 def ssim(gt, pred):
     """ Compute Structural Similarity Index Metric (SSIM). """
     return compare_ssim(
         gt.transpose(1, 2, 0), pred.transpose(1, 2, 0), multichannel=True, data_range=gt.max()
+    )
+
+def ssim1(gt, pred):
+    """ Compute Structural Similarity Index Metric (SSIM). """
+    return compare_ssim(
+        gt, pred, multichannel=True, data_range=gt.max()
     )
 
 METRIC_FUNCS = dict(
@@ -73,9 +90,9 @@ class Metrics:
 
 def evaluate():
     args = create_arg_parser().parse_args()
-    args.target_path = f'/home/aditomer/Datasets/singlecoil_{args.data_split}'
-    args.predictions_path = f'/home/aditomer/PILOT/summary/{args.test_name}/rec'
-
+    args.target_path = f'/home/tomerweiss/Datasets/singlecoil_{args.data_split}'
+    args.predictions_path = f'/home/tomerweiss/PILOT/summary/{args.test_name}/rec'
+    print('/home/tomerweiss/PILOT/summary/'+args.test_name+'/rec')
     metrics = Metrics(METRIC_FUNCS)
 
     for tgt_file in pathlib.Path(args.target_path).iterdir():
@@ -93,7 +110,7 @@ def create_arg_parser():
     parser.add_argument('--test-name', type=str, default='test', help='name for the output dir')
     parser.add_argument('--data-split', choices=['val', 'test'], default='val',
                         help='Which data partition to run on: "val" or "test"')
-    parser.add_argument('--target-path', type=pathlib.Path, default=f'/home/aditomer/Datasets/singlecoil_test',
+    parser.add_argument('--target-path', type=pathlib.Path, default=f'/home/tomerweiss/Datasets/singlecoil_test',
                         help='Path to the ground truth data')
     parser.add_argument('--predictions-path', type=pathlib.Path, default=f'summary/test/rec',
                         help='Path to reconstructions')

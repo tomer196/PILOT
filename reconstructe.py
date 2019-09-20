@@ -1,17 +1,9 @@
-"""
-Copyright (c) Facebook, Inc. and its affiliates.
-
-This source code is licensed under the MIT license found in the
-LICENSE file in the root directory of this source tree.
-"""
-
 import pathlib
 import sys
 from collections import defaultdict
 import os
-os.environ["CUDA_VISIBLE_DEVICES"]="1"
+# os.environ["CUDA_VISIBLE_DEVICES"]="1"
 import sys
-sys.path.insert(0,'/home/aditomer/PILOT')
 
 import numpy as np
 import torch
@@ -93,7 +85,7 @@ def eval(args, model, data_loader):
 
 def reconstructe():
     args = create_arg_parser().parse_args(sys.argv[1:])
-    args.checkpoint = f'summary/{args.test_name}/best_model.pt'
+    args.checkpoint = f'summary/{args.test_name}/model.pt'
     args.out_dir = f'summary/{args.test_name}/rec'
 
     data_loader = create_data_loaders(args)

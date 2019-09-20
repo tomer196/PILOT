@@ -1,13 +1,14 @@
-
 import logging
 import pathlib
 import random
 import shutil
 import time
 import os
-os.environ["CUDA_VISIBLE_DEVICES"]="0"
+
+# os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 import sys
-sys.path.insert(0,'/home/aditomer/PILOT')
+
+sys.path.insert(0, '/home/tomerweiss/PILOT')
 
 import numpy as np
 import torch
@@ -19,6 +20,7 @@ from common.args import Args
 from data import transforms
 from data.mri_data import SliceData
 import matplotlib
+
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from models.subsampling_model import Subsampling_Model
@@ -30,12 +32,12 @@ from common.utils import get_vel_acc
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 class DataTransform:
     def __init__(self, resolution):
         self.resolution = resolution
 
     def __call__(self, kspace, target, attrs, fname, slice):
-
         kspace = transforms.to_tensor(kspace)
         image = transforms.ifft2_regular(kspace)
         image = transforms.complex_center_crop(image, (self.resolution, self.resolution))
@@ -43,11 +45,12 @@ class DataTransform:
         image, mean, std = transforms.normalize_instance(image, eps=1e-11)
         image = image.clamp(-6, 6)
         kspace = transforms.rfft2_regular(image)
-        
+
         target = transforms.to_tensor(target)
         target = transforms.normalize(target, mean, std, eps=1e-11)
         target = target.clamp(-6, 6)
         return kspace, target, mean, std, attrs['norm'].astype(np.float32)
+
 
 def create_datasets(args):
     train_data = SliceData(
@@ -61,6 +64,7 @@ def create_datasets(args):
         sample_rate=args.sample_rate
     )
     return dev_data, train_data
+
 
 def create_data_loaders(args):
     dev_data, train_data = create_datasets(args)
@@ -87,11 +91,13 @@ def create_data_loaders(args):
     )
     return train_loader, dev_loader, display_loader
 
+
 def tsp_solver(x):
     # reorder the trajectory according to the TSP solution
     d = distance_matrix(x, x)
     t = solve_tsp(d)
     return x[t, :]
+
 
 def train_epoch(args, epoch, model, data_loader, optimizer, writer):
     model.train()
@@ -100,12 +106,31 @@ def train_epoch(args, epoch, model, data_loader, optimizer, writer):
         x = model.get_trajectory()
         x = x.detach().cpu().numpy()
         x = tsp_solver(x)
-        v,a = get_vel_acc(x)
+        v, a = get_vel_acc(x)
         writer.add_figure('TSP_Trajectory', plot_trajectory(x), epoch)
         writer.add_figure('TSP_Acc', plot_acc(a, args.a_max), epoch)
         writer.add_figure('TSP_Vel', plot_acc(v, args.v_max), epoch)
+        np.save('trajTSP',x)
         with torch.no_grad():
             model.subsampling.x.data = torch.tensor(x, device='cuda')
+        args.a_max *= 2
+        args.v_max *= 2
+
+    if args.TSP and epoch > args.TSP_epoch and epoch<=args.TSP_epoch*2:
+        v0 = args.gamma * args.G_max * args.FOV * args.dt
+        a0 = args.gamma * args.S_max * args.FOV * args.dt ** 2 * 1e3
+        args.a_max -= a0/args.TSP_epoch
+        args.v_max -= vo/args.TSP_epoch
+
+    if args.TSP and epoch==args.TSP_epoch*2:
+        args.vel_weight *= 10
+        args.acc_weight *= 10
+    if args.TSP and epoch==args.TSP_epoch*2+10:
+        args.vel_weight *= 10
+        args.acc_weight *= 10
+    if args.TSP and epoch==args.TSP_epoch*2+20:
+        args.vel_weight *= 10
+        args.acc_weight *= 10
 
     start_epoch = start_iter = time.perf_counter()
     for iter, data in enumerate(data_loader):
@@ -121,8 +146,8 @@ def train_epoch(args, epoch, model, data_loader, optimizer, writer):
         acc_loss = args.acc_weight * torch.sqrt(torch.sum(torch.pow(F.softshrink(a, args.a_max), 2)))
         vel_loss = args.vel_weight * torch.sqrt(torch.sum(torch.pow(F.softshrink(v, args.v_max), 2)))
         rec_loss = args.rec_weight * F.l1_loss(output, target)
-        if args.TSP_epoch:
-            loss=rec_loss
+        if args.TSP and epoch < args.TSP_epoch:
+            loss = rec_loss
         else:
             loss = rec_loss + vel_loss + acc_loss
         optimizer.zero_grad()
@@ -130,7 +155,7 @@ def train_epoch(args, epoch, model, data_loader, optimizer, writer):
         optimizer.step()
 
         avg_loss = 0.99 * avg_loss + 0.01 * loss.item() if iter > 0 else loss.item()
-        #writer.add_scalar('TrainLoss', loss.item(), global_step + iter)
+        # writer.add_scalar('TrainLoss', loss.item(), global_step + iter)
 
         if iter % args.report_interval == 0:
             logging.info(
@@ -141,6 +166,7 @@ def train_epoch(args, epoch, model, data_loader, optimizer, writer):
             )
         start_iter = time.perf_counter()
     return avg_loss, time.perf_counter() - start_epoch
+
 
 def evaluate(args, epoch, model, data_loader, writer):
     model.eval()
@@ -166,38 +192,42 @@ def evaluate(args, epoch, model, data_loader, writer):
             writer.add_scalar('Rec_Loss', rec_loss, epoch)
             writer.add_scalar('Acc_Loss', acc_loss.detach().cpu().numpy(), epoch)
             writer.add_scalar('Vel_Loss', vel_loss.detach().cpu().numpy(), epoch)
-            writer.add_scalar('Total_Loss', rec_loss + acc_loss.detach().cpu().numpy() + vel_loss.detach().cpu().numpy(), epoch)
+            writer.add_scalar('Total_Loss',
+                              rec_loss + acc_loss.detach().cpu().numpy() + vel_loss.detach().cpu().numpy(), epoch)
 
         x = model.get_trajectory()
         v, a = get_vel_acc(x)
         if args.TSP and epoch < args.TSP_epoch:
             writer.add_figure('Scatter', plot_scatter(x.detach().cpu().numpy()), epoch)
         else:
-            writer.add_figure('Trajectory', plot_trajectory(x.detach().cpu().numpy()),epoch)
-        writer.add_figure('Accelerations_plot', plot_acc(a.cpu().numpy(),args.a_max), epoch)
-        writer.add_figure('Velocity_plot', plot_acc(v.cpu().numpy(),args.v_max), epoch)
-        writer.add_text('Coordinates', str(x.cpu().numpy()).replace(' ',','),epoch)
+            writer.add_figure('Trajectory', plot_trajectory(x.detach().cpu().numpy()), epoch)
+        writer.add_figure('Accelerations_plot', plot_acc(a.cpu().numpy(), args.a_max), epoch)
+        writer.add_figure('Velocity_plot', plot_acc(v.cpu().numpy(), args.v_max), epoch)
+        writer.add_text('Coordinates', str(x.cpu().numpy()).replace(' ', ','), epoch)
     return np.mean(losses), time.perf_counter() - start
+
 
 def plot_scatter(x):
     fig = plt.figure(figsize=[10, 10])
     ax = fig.add_subplot(1, 1, 1)
     ax.axis([-165, 165, -165, 165])
-    ax.plot(x[:,0],x[:,1],'.')
+    ax.plot(x[:, 0], x[:, 1], '.')
     return fig
+
 
 def plot_trajectory(x):
     fig = plt.figure(figsize=[10, 10])
     ax = fig.add_subplot(1, 1, 1)
     ax.axis([-165, 165, -165, 165])
-    ax.plot(x[:,0],x[:,1])
+    ax.plot(x[:, 0], x[:, 1])
     return fig
 
-def plot_acc(a,a_max=None):
+
+def plot_acc(a, a_max=None):
     fig, ax = plt.subplots(2, sharex=True)
 
-    ax[0].plot(a[:,0])
-    ax[1].plot(a[:,1])
+    ax[0].plot(a[:, 0])
+    ax[1].plot(a[:, 1])
     if a_max != None:
         limit = np.ones(a.shape[0]) * a_max
         ax[1].plot(limit, color='red')
@@ -205,6 +235,7 @@ def plot_acc(a,a_max=None):
         ax[0].plot(limit, color='red')
         ax[0].plot(-limit, color='red')
     return fig
+
 
 def visualize(args, epoch, model, data_loader, writer):
     def save_image(image, tag):
@@ -222,12 +253,13 @@ def visualize(args, epoch, model, data_loader, writer):
             save_image(target, 'Target')
             if epoch != 0:
                 output = model(input.clone())
-                corrupted=model.subsampling(input)
+                corrupted = model.subsampling(input)
 
                 save_image(output, 'Reconstruction')
                 save_image(corrupted, 'Corrupted')
                 save_image(torch.abs(target - output), 'Error')
             break
+
 
 def save_model(args, exp_dir, epoch, model, optimizer, best_dev_loss, is_new_best):
     torch.save(
@@ -240,9 +272,10 @@ def save_model(args, exp_dir, epoch, model, optimizer, best_dev_loss, is_new_bes
             'exp_dir': exp_dir
         },
         f=exp_dir + '/model.pt'
-    )   
+    )
     if is_new_best:
         shutil.copyfile(exp_dir + '/model.pt', exp_dir + '/best_model.pt')
+
 
 def build_model(args):
     model = Subsampling_Model(
@@ -258,6 +291,7 @@ def build_model(args):
     ).to(args.device)
     return model
 
+
 def load_model(checkpoint_file):
     checkpoint = torch.load(checkpoint_file)
     args = checkpoint['args']
@@ -270,28 +304,33 @@ def load_model(checkpoint_file):
     optimizer.load_state_dict(checkpoint['optimizer'])
     return checkpoint, model, optimizer
 
+
 def build_optim(args, model):
-    optimizer = torch.optim.Adam([{'params': model.subsampling.parameters(),'lr': args.sub_lr},
-                {'params': model.reconstruction_model.parameters()}], args.lr)
+    optimizer = torch.optim.Adam([{'params': model.subsampling.parameters(), 'lr': args.sub_lr},
+                                  {'params': model.reconstruction_model.parameters()}], args.lr)
     return optimizer
+
 
 def train():
     args = create_arg_parser().parse_args()
-    args.exp_dir=f'summary/{args.test_name}'
-    args.checkpoint=f'summary/{args.test_name}/model.pt'
+    args.v_max = args.gamma * args.G_max * args.FOV * args.dt
+    args.a_max = args.gamma * args.S_max * args.FOV * args.dt**2 * 1e3
+    # print(args.v_max)
+    # print(args.a_max)
+    args.exp_dir = f'summary/{args.test_name}'
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     pathlib.Path(args.exp_dir).mkdir(parents=True, exist_ok=True)
     writer = SummaryWriter(log_dir=args.exp_dir)
-    with open(args.exp_dir+'/args.txt', "w") as text_file:
-      print(vars(args), file=text_file)
+    with open(args.exp_dir + '/args.txt', "w") as text_file:
+        print(vars(args), file=text_file)
 
     if args.resume:
         checkpoint, model, optimizer = load_model(args.checkpoint)
-        args = checkpoint['args']
+        # args = checkpoint['args']
         best_dev_loss = checkpoint['best_dev_loss']
-        start_epoch = checkpoint['epoch']+1
+        start_epoch = checkpoint['epoch'] + 1
         del checkpoint
     else:
         model = build_model(args)
@@ -301,7 +340,7 @@ def train():
         best_dev_loss = 1e9
         start_epoch = 0
     logging.info(args)
-    #logging.info(model)
+    # logging.info(model)
 
     train_loader, dev_loader, display_loader = create_data_loaders(args)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_step_size, args.lr_gamma)
@@ -309,17 +348,20 @@ def train():
     visualize(args, 0, model, display_loader, writer)
 
     for epoch in range(start_epoch, args.num_epochs):
-        scheduler.step(epoch)
+        # scheduler.step(epoch)
+        # if epoch>=args.TSP_epoch:
+        #     optimizer.param_groups[0]['lr']=0.001
+        #     optimizer.param_groups[1]['lr'] = 0.001
         train_loss, train_time = train_epoch(args, epoch, model, train_loader, optimizer, writer)
-        dev_loss, dev_time = evaluate(args, epoch+1, model, dev_loader, writer)
-        visualize(args, epoch+1, model, display_loader, writer)
+        dev_loss, dev_time = evaluate(args, epoch + 1, model, dev_loader, writer)
+        visualize(args, epoch + 1, model, display_loader, writer)
 
-        if epoch==args.TSP_epoch:
+        if epoch == args.TSP_epoch:
             best_dev_loss = 1e9
         if dev_loss < best_dev_loss:
             is_new_best = True
             best_dev_loss = dev_loss
-            best_epoch=epoch+1
+            best_epoch = epoch + 1
         else:
             is_new_best = False
         save_model(args, args.exp_dir, epoch, model, optimizer, best_dev_loss, is_new_best)
@@ -331,10 +373,11 @@ def train():
     print(f'Training done, best epoch: {best_epoch}')
     writer.close()
 
+
 def create_arg_parser():
     parser = Args()
-    parser.add_argument('--test-name', type=str, default='test', help='name for the output dir')
-    parser.add_argument('--exp-dir', type=pathlib.Path, default='summary/test',
+    parser.add_argument('--test-name', type=str, default='gaussiantsp-d24-a1e-3-v1e-3', help='name for the output dir')
+    parser.add_argument('--exp-dir', type=pathlib.Path, default='summary/testepi',
                         help='Path where model and results should be saved')
     parser.add_argument('--resume', action='store_true',
                         help='If set, resume the training from a previous model checkpoint. '
@@ -343,7 +386,7 @@ def create_arg_parser():
                         help='Path to an existing checkpoint. Used along with "--resume"')
     parser.add_argument('--report-interval', type=int, default=100, help='Period of loss reporting')
 
-    #model parameters
+    # model parameters
     parser.add_argument('--num-pools', type=int, default=4, help='Number of U-Net pooling layers')
     parser.add_argument('--drop-prob', type=float, default=0.0, help='Dropout probability')
     parser.add_argument('--num-chans', type=int, default=32, help='Number of U-Net channels')
@@ -351,7 +394,7 @@ def create_arg_parser():
                         help='If set, use multiple GPUs using data parallelism')
     parser.add_argument('--device', type=str, default='cuda',
                         help='Which device to train on. Set to "cuda" to use the GPU')
-    parser.add_argument('--decimation-rate', nargs='+', default=24, type=int,
+    parser.add_argument('--decimation-rate', default=24, type=int,
                         help='Ratio of k-space columns to be sampled. If multiple values are '
                              'provided, then one of those is chosen uniformly at random for each volume.')
 
@@ -359,26 +402,34 @@ def create_arg_parser():
     parser.add_argument('--batch-size', default=16, type=int, help='Mini batch size')
     parser.add_argument('--num-epochs', type=int, default=40, help='Number of training epochs')
     parser.add_argument('--lr', type=float, default=0.001, help='Learning rate')
-    parser.add_argument('--lr-step-size', type=int, default=25,
+    parser.add_argument('--lr-step-size', type=int, default=30,
                         help='Period of learning rate decay')
-    parser.add_argument('--lr-gamma', type=float, default=0.1,
+    parser.add_argument('--lr-gamma', type=float, default=0.01,
                         help='Multiplicative factor of learning rate decay')
     parser.add_argument('--weight-decay', type=float, default=0.,
                         help='Strength of weight decay regularization')
     parser.add_argument('--sub-lr', type=float, default=1e-1, help='lerning rate of the sub-samping layel')
 
     # trajectory learning parameters
-    parser.add_argument('--trajectory_learning', default=True, help='trajectory_learning, if set to False, fixed trajectory, only reconstruction learning.')
-    parser.add_argument('--acc-weight', type=float, default=1e-3, help='weight of the acceleration loss')
+    parser.add_argument('--trajectory-learning', default=True,
+                        help='trajectory_learning, if set to False, fixed trajectory, only reconstruction learning.')
+    parser.add_argument('--acc-weight', type=float, default=1e-2, help='weight of the acceleration loss')
     parser.add_argument('--vel-weight', type=float, default=1e-1, help='weight of the velocity loss')
     parser.add_argument('--rec-weight', type=float, default=1, help='weight of the reconstruction loss')
-    parser.add_argument('--a-max', type=float, default=3, help='maximum acceleration')
-    parser.add_argument('--v-max', type=float, default=30, help='maximum velocity')
-    parser.add_argument('--TSP', default=True, help='Using the PILOT-TSP algorithm,if False using PILOT.')
-    parser.add_argument('--TSP-epoch', default=30, type=int, help='Epoch to preform the TSP reorder at')
+    parser.add_argument('--gamma', type=float, default=42576, help='gyro magnetic ratio - kHz/T')
+    parser.add_argument('--G-max', type=float, default=40, help='maximum gradient (peak current) - mT/m')
+    parser.add_argument('--S-max', type=float, default=200, help='maximum slew-rate - T/m/s')
+    parser.add_argument('--FOV', type=float, default=0.2, help='Field Of View - in m')
+    parser.add_argument('--dt', type=float, default=1e-5, help='sampling time - sec')
+    parser.add_argument('--a-max', type=float, default=0.17, help='maximum acceleration')
+    parser.add_argument('--v-max', type=float, default=3.4, help='maximum velocity')
+    parser.add_argument('--TSP', action='store_true', default=False,
+                        help='Using the PILOT-TSP algorithm,if False using PILOT.')
+    parser.add_argument('--TSP-epoch', default=1, type=int, help='Epoch to preform the TSP reorder at')
     parser.add_argument('--initialization', type=str, default='spiral',
                         help='Trajectory initialization when using PILOT (spiral, EPI, rosette, uniform, gaussian).')
     return parser
+
 
 if __name__ == '__main__':
     train()

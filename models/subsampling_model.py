@@ -7,16 +7,14 @@ import pytorch_nufft.interp as interp
 import data.transforms as transforms
 from scipy.spatial import distance_matrix
 from tsp_solver.greedy import solve_tsp
-
+import numpy as np
 
 class Subsampling_Layer(nn.Module):
     def initilaize_trajectory(self,trajectory_learning,initialization):
         x = torch.zeros(self.num_measurements, 2)
         if initialization == 'spiral':
-            c = self.decimation_rate / self.res ** 2 * 1600
-            r = torch.arange(self.num_measurements, dtype=torch.float64) * 1e-1
-            x[:, 0] = c * r * torch.cos(r)
-            x[:, 1] = c * r * torch.sin(r)
+            x=np.load(f'spiral/{self.decimation_rate}spiral.npy')
+            x=torch.tensor(x).float()
         elif initialization == 'EPI':
             index = 0
             for i in range(self.res // self.decimation_rate):
@@ -41,7 +39,8 @@ class Subsampling_Layer(nn.Module):
             x = (torch.rand(self.num_measurements, 2) - 0.5) * self.res
         elif initialization == 'gaussian':
             x = torch.randn(self.num_measurements, 2) * self.res/6
-
+        else:
+            print('Wrong initialization')
         self.x = torch.nn.Parameter(x, requires_grad=trajectory_learning)
         return
 
