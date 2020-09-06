@@ -16,7 +16,7 @@ def interpolate(input, width, kernel, coord, device):
     coord = coord.reshape([npts, ndim])
     output = torch.zeros([batch_size, npts], dtype=input.dtype, device=device)
 
-    output=_interpolate2(output, input, width, kernel, coord)
+    output = _interpolate2(output, input, width, kernel, coord)
 
     return output.reshape(batch_shape + pts_shape)
 
@@ -32,14 +32,14 @@ def bilinear_interpolate_torch_gridsample(input, coord):
 
 def lin_interpolate(kernel, x):
     mask=torch.lt(x,1).float()
-    x=x*mask
+    x = x.clone()*mask
     n = len(kernel)
     idx = torch.floor(x * n)
     frac = x * n - idx
 
     left = kernel[idx.long()]
     mask2=torch.ne(idx,n-1).float()
-    idx=idx*mask2
+    idx=idx.clone() * mask2
     right = kernel[idx.long() + 1]
     output=(1.0 - frac) * left + frac * right
     return output*mask*mask2
@@ -58,9 +58,9 @@ def _interpolate2(output, input, width, kernel, coord):
         for x in range(int(width) + 1):
             w = wy * lin_interpolate(kernel, torch.abs(x0 + x - kx) / (width / 2))
 
-            yy=torch.fmod(y0+y,ny).long()
-            xx=torch.fmod(x0+x,nx).long()
-            output[:, :] = output[:, :] + w * input[:, yy, xx]
+            yy = torch.fmod(y0+y, ny).long()
+            xx = torch.fmod(x0+x, nx).long()
+            output[:, :] = output[:, :].clone() + w * input[:, yy, xx]
 
     return output
 
@@ -95,8 +95,11 @@ def _gridding2(output, input, width, kernel, coord):
         for x in range(int(width) + 1):
             w = wy * lin_interpolate(kernel, torch.abs(x0 + x - kx) / (width / 2))
 
-            yy=torch.fmod(y0+y,ny).long()
-            xx=torch.fmod(x0+x,nx).long()
-            output[:, yy, xx] = output[:, yy, xx] + w * input[:, :]
+            yy = torch.fmod(y0+y,ny).long()
+            xx = torch.fmod(x0+x,nx).long()
+            # output[:, yy, xx] = output[:, yy, xx] + w * input[:, :]
+            update = torch.zeros_like(output)
+            update[:, yy, xx] = w * input[:, :]
+            output = output + update
 
     return output

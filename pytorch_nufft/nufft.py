@@ -20,7 +20,9 @@ def nufft(input, coord, oversamp=1.25, width=4.0, n=128, device='cuda'):
     output = util.resize(output, os_shape, device=device)
 
     # FFT
-    output = transforms.rfft2(output)
+    output = output.permute(0, 1, 3, 4, 2)
+    output = transforms.fft2(output)
+    output = output.permute(0, 1, 4, 2, 3)
 
     # Interpolate
     coord = _scale_coord(coord, input.shape, oversamp, device)
@@ -30,34 +32,33 @@ def nufft(input, coord, oversamp=1.25, width=4.0, n=128, device='cuda'):
     return output
 
 
-def nufft_adjoint(input, coord, oshape, oversamp=1.25, width=4.0, n=128, device='cuda'):
+def nufft_adjoint(input, coord, out_shape, oversamp=1.25, width=4.0, n=128, device='cuda'):
     ndim = coord.shape[-1]
     beta = numpy.pi * (((width / oversamp) * (oversamp - 0.5)) ** 2 - 0.8) ** 0.5
-    oshape = list(oshape)
+    out_shape = list(out_shape)
 
-    os_shape = _get_oversamp_shape(oshape, ndim, oversamp)
+    os_shape = _get_oversamp_shape(out_shape, ndim, oversamp)
 
     # Gridding
-    oshape2 = oshape.copy()
-    oshape2[1] = 2
+    out_shape2 = out_shape.copy()
     os_shape2 = os_shape.copy()
-    os_shape2[1] = 2
-    coord = _scale_coord(coord, oshape2, oversamp, device)
+    coord = _scale_coord(coord, out_shape2, oversamp, device)
     kernel = _get_kaiser_bessel_kernel(n, width, beta, coord.dtype, device)
     output = interp.gridding(input, os_shape2, width, kernel, coord, device)
 
     # IFFT
-    output = transforms.ifft2(output)
+    output = output.permute(0, 1, 3, 4, 2)
+    output = transforms.ifft2_regular(output)
+    output = output.permute(0, 1, 4, 2, 3)
 
     # Crop
-    output = util.resize(output, oshape2, device=device)
-    a = util.prod(os_shape[-ndim:]) / util.prod(oshape[-ndim:]) ** 0.5
+    output = util.resize(output, out_shape2, device=device)
+    a = util.prod(os_shape2[-ndim:]) / util.prod(out_shape2[-ndim:]) ** 0.5
     output = output * a
 
     # Apodize
     output = _apodize(output, ndim, oversamp, width, beta, device)
 
-    output = output[:, 0, :, :]
     return output
 
 
