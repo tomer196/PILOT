@@ -7,8 +7,10 @@ This repository contains a PyTorch implementation of the paper:
 Tomer Weiss (<tomer196@gmail.com>), Ortal Senouf, Sanketh Vedula, Oleg Michailovich, Michael Zibulevsky, Alex Bronstein
 
 <p align="center">
-       <img src="teaser.PNG">
+       <img src="Fig1.png">
 </p>
+
+* v2 - new! work with multi-channel data.
 
 ## Introduction
 
@@ -26,14 +28,12 @@ To install other requirements through `$ pip install -r requirements.txt`.
 
 ## Usage
 
-First you should download the singelcoil dataset from [fastMRI](https://fastmri.med.nyu.edu/) and split the training + validation sets to training + validation + test set.
+First you should download the multicoil dataset from [fastMRI](https://fastmri.med.nyu.edu/) and split the training + validation sets to training + validation + test set.
 Update the datasets location in `common/arg.py`.
-We provide scripts to run few experiment, fill free to change the parameters as needed. 
+We provide script to easily run experiment, fill free to change the parameters as needed. 
 
 ```bash
-sh exp_PILOT_EPI.sh         # PILOT with EPI initialization
-sh exp_PILOT_spiral.sh      # PILOT with spiral initialization
-sh exp_PILOT-TSP.sh         # PILOT-TSP
+$ python exp.py
 ```
 
 ## Citing this Work
