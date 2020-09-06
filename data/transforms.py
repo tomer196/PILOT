@@ -180,6 +180,25 @@ def normalize_instance(data, eps=0.):
     std = data.std()
     return normalize(data, mean, std, eps), mean, std
 
+def normalize_instance_per_channel(data, eps=0.):
+    """
+        Normalize the given tensor using:
+            (data - mean) / (stddev + eps)
+        where mean and stddev are computed from the data itself.
+
+        Args:
+            data (torch.Tensor): Input data to be normalized
+            eps (float): Added to stddev to prevent dividing by zero
+
+        Returns:
+            torch.Tensor: Normalized tensor
+        """
+    for i in range(data.shape[0]):
+        for j in range(2):
+            mean = data[i, :, :, j].mean()
+            std = data[i, :, :, j].std()
+            data[i, :, :, j] = normalize(data[i, :, :, j], mean, std, eps)
+    return data, mean, std
 
 # Helper functions
 

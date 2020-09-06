@@ -1,10 +1,3 @@
-"""
-Copyright (c) Facebook, Inc. and its affiliates.
-
-This source code is licensed under the MIT license found in the
-LICENSE file in the root directory of this source tree.
-"""
-
 import pathlib
 import random
 import h5py
@@ -12,10 +5,6 @@ from torch.utils.data import Dataset
 
 
 class SliceData(Dataset):
-    """
-    A PyTorch Dataset that provides access to MR image slices.
-    """
-
     def __init__(self, root, transform, sample_rate=1):
         """
         Args:
@@ -37,9 +26,11 @@ class SliceData(Dataset):
             num_files = round(len(files) * sample_rate)
             files = files[:num_files]
         for fname in sorted(files):
-            kspace = h5py.File(fname, 'r')['kspace']
-            num_slices = kspace.shape[0]
-            self.examples += [(fname, slice) for slice in range(num_slices)]
+            with h5py.File(fname, 'r') as data:
+                if data.attrs['acquisition'] == 'CORPD_FBK':   # should be 'CORPD_FBK' or 'CORPDFS_FBK'
+                    kspace = data['kspace']
+                    num_slices = kspace.shape[0]
+                    self.examples += [(fname, slice) for slice in range(5, num_slices-2)]
 
     def __len__(self):
         return len(self.examples)
@@ -48,5 +39,5 @@ class SliceData(Dataset):
         fname, slice = self.examples[i]
         with h5py.File(fname, 'r') as data:
             kspace = data['kspace'][slice]
-            target = data['reconstruction_esc'][slice] if 'reconstruction_esc' in data else None
+            target = data['reconstruction_rss'][slice] if 'reconstruction_rss' in data else None
             return self.transform(kspace, target, data.attrs, fname.name, slice)

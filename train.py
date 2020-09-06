@@ -4,13 +4,13 @@ import random
 import shutil
 import time
 import os
-
-# os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "6"
 import sys
 
-sys.path.insert(0, '/home/tomerweiss/PILOT')
+sys.path.insert(0, '/home/tomerweiss/multiPILOT2')
 
 import numpy as np
+# np.seterr('raise')
 import torch
 import torchvision
 from tensorboardX import SummaryWriter
@@ -41,25 +41,28 @@ class DataTransform:
         kspace = transforms.to_tensor(kspace)
         image = transforms.ifft2_regular(kspace)
         image = transforms.complex_center_crop(image, (self.resolution, self.resolution))
-        image = transforms.complex_abs(image)
+        # image = transforms.complex_abs(image)
         image, mean, std = transforms.normalize_instance(image, eps=1e-11)
-        image = image.clamp(-6, 6)
-        kspace = transforms.rfft2_regular(image)
+        # image, mean, std = transforms.normalize_instance_per_channel(image, eps=1e-11)
+        # image = image.clamp(-6, 6)
+        # kspace = transforms.fft2(image)
 
         target = transforms.to_tensor(target)
-        target = transforms.normalize(target, mean, std, eps=1e-11)
-        target = target.clamp(-6, 6)
-        return kspace, target, mean, std, attrs['norm'].astype(np.float32)
+        target, mean, std = transforms.normalize_instance(target, eps=1e-11)
+        # # target = transforms.normalize(target, mean, std)
+        # target = target.clamp(-6, 6)
+        mean = std = 0
+        return image, target, mean, std, attrs['norm'].astype(np.float32)
 
 
 def create_datasets(args):
     train_data = SliceData(
-        root=args.data_path / 'singlecoil_train',
+        root=args.data_path / 'multicoil_train',
         transform=DataTransform(args.resolution),
         sample_rate=args.sample_rate
     )
     dev_data = SliceData(
-        root=args.data_path / 'singlecoil_val',
+        root=args.data_path / 'multicoil_val',
         transform=DataTransform(args.resolution),
         sample_rate=args.sample_rate
     )
@@ -74,19 +77,19 @@ def create_data_loaders(args):
         dataset=train_data,
         batch_size=args.batch_size,
         shuffle=True,
-        num_workers=8,
+        num_workers=20,
         pin_memory=True,
     )
     dev_loader = DataLoader(
         dataset=dev_data,
         batch_size=args.batch_size,
-        num_workers=8,
+        num_workers=20,
         pin_memory=True,
     )
     display_loader = DataLoader(
         dataset=display_data,
         batch_size=16,
-        num_workers=8,
+        num_workers=20,
         pin_memory=True,
     )
     return train_loader, dev_loader, display_loader
@@ -103,54 +106,118 @@ def train_epoch(args, epoch, model, data_loader, optimizer, writer):
     model.train()
     avg_loss = 0.
     if epoch == args.TSP_epoch and args.TSP:
-        x = model.get_trajectory()
+        x = model.module.get_trajectory()
         x = x.detach().cpu().numpy()
-        x = tsp_solver(x)
+        for shot in range(x.shape[0]):
+            x[shot, :, :] = tsp_solver(x[shot, :, :])
         v, a = get_vel_acc(x)
         writer.add_figure('TSP_Trajectory', plot_trajectory(x), epoch)
         writer.add_figure('TSP_Acc', plot_acc(a, args.a_max), epoch)
         writer.add_figure('TSP_Vel', plot_acc(v, args.v_max), epoch)
         np.save('trajTSP',x)
         with torch.no_grad():
-            model.subsampling.x.data = torch.tensor(x, device='cuda')
+            model.module.subsampling.x.data = torch.tensor(x, device='cuda')
         args.a_max *= 2
         args.v_max *= 2
+        args.vel_weight = 1e-3
+        args.acc_weight = 1e-3
 
-    if args.TSP and epoch > args.TSP_epoch and epoch<=args.TSP_epoch*2:
-        v0 = args.gamma * args.G_max * args.FOV * args.dt
-        a0 = args.gamma * args.S_max * args.FOV * args.dt ** 2 * 1e3
-        args.a_max -= a0/args.TSP_epoch
-        args.v_max -= vo/args.TSP_epoch
+    # if epoch == 30:
+    #     v0 = args.gamma * args.G_max * args.FOV * args.dt
+    #     a0 = args.gamma * args.S_max * args.FOV * args.dt ** 2 * 1e3
+    #     args.a_max = a0 *1.5
+    #     args.v_max = v0 *1.5
 
-    if args.TSP and epoch==args.TSP_epoch*2:
-        args.vel_weight *= 10
-        args.acc_weight *= 10
-    if args.TSP and epoch==args.TSP_epoch*2+10:
-        args.vel_weight *= 10
-        args.acc_weight *= 10
-    if args.TSP and epoch==args.TSP_epoch*2+20:
-        args.vel_weight *= 10
-        args.acc_weight *= 10
+    # if args.TSP and epoch > args.TSP_epoch and epoch<=args.TSP_epoch*2:
+    #     v0 = args.gamma * args.G_max * args.FOV * args.dt
+    #     a0 = args.gamma * args.S_max * args.FOV * args.dt ** 2 * 1e3
+    #     args.a_max -= a0/args.TSP_epoch
+    #     args.v_max -= v0/args.TSP_epoch
+    #
+    # if args.TSP and epoch==args.TSP_epoch*2:
+    #     v0 = args.gamma * args.G_max * args.FOV * args.dt
+    #     a0 = args.gamma * args.S_max * args.FOV * args.dt ** 2 * 1e3
+    #     args.a_max = a0
+    #     args.v_max = v0
+    #     args.vel_weight *= 10
+    #     args.acc_weight *= 10
+    # if args.TSP and epoch==args.TSP_epoch*2+10:
+    #     args.vel_weight *= 10
+    #     args.acc_weight *= 10
+    # if args.TSP and epoch==args.TSP_epoch*2+20:
+    #     args.vel_weight *= 10
+    #     args.acc_weight *= 10
+    if args.TSP:
+        if epoch < args.TSP_epoch:
+            model.module.subsampling.interp_gap = 1
+        elif epoch < 10 + args.TSP_epoch:
+            model.module.subsampling.interp_gap = 10
+            v0 = args.gamma * args.G_max * args.FOV * args.dt
+            a0 = args.gamma * args.S_max * args.FOV * args.dt ** 2 * 1e3
+            args.a_max -= a0/args.TSP_epoch
+            args.v_max -= v0/args.TSP_epoch
+        elif epoch == 10 + args.TSP_epoch:
+            model.module.subsampling.interp_gap = 10
+            v0 = args.gamma * args.G_max * args.FOV * args.dt
+            a0 = args.gamma * args.S_max * args.FOV * args.dt ** 2 * 1e3
+            args.a_max -= a0 / args.TSP_epoch
+            args.v_max -= v0 / args.TSP_epoch
+        elif epoch == 15 + args.TSP_epoch:
+            model.module.subsampling.interp_gap = 10
+            v0 = args.gamma * args.G_max * args.FOV * args.dt
+            a0 = args.gamma * args.S_max * args.FOV * args.dt ** 2 * 1e3
+            args.a_max -= a0 / args.TSP_epoch
+            args.v_max -= v0 / args.TSP_epoch
+        elif epoch == 20 + args.TSP_epoch:
+            model.module.subsampling.interp_gap = 10
+            args.vel_weight *= 10
+            args.acc_weight *= 10
+        elif epoch == 23 + args.TSP_epoch:
+            model.module.subsampling.interp_gap = 5
+            args.vel_weight *= 10
+            args.acc_weight *= 10
+        elif epoch == 25 + args.TSP_epoch:
+            model.module.subsampling.interp_gap = 1
+            args.vel_weight *= 10
+            args.acc_weight *= 10
+    else:
+        if epoch < 10:
+            model.module.subsampling.interp_gap = 50
+        elif epoch == 10:
+            model.module.subsampling.interp_gap = 30
+        elif epoch == 15:
+            model.module.subsampling.interp_gap = 20
+        elif epoch == 20:
+            model.module.subsampling.interp_gap = 10
+        elif epoch == 23:
+            model.module.subsampling.interp_gap = 5
+        elif epoch == 25:
+            model.module.subsampling.interp_gap = 1
 
     start_epoch = start_iter = time.perf_counter()
+    print(f'a_max={args.a_max}, v_max={args.v_max}')
     for iter, data in enumerate(data_loader):
+        optimizer.zero_grad()
         input, target, mean, std, norm = data
-        input = input.unsqueeze(1).to(args.device)
+        input = input.to(args.device)
         target = target.to(args.device)
 
-        output = model(input).squeeze(1)
+        output = model(input)
+        # output = transforms.complex_abs(output)  # complex to real
+        # output = transforms.root_sum_of_squares(output, dim=1)
+        output=output.squeeze()
 
-        x = model.get_trajectory()
+        x = model.module.get_trajectory()
         v, a = get_vel_acc(x)
+        acc_loss = torch.sqrt(torch.sum(torch.pow(F.softshrink(a, args.a_max).abs()+1e-8, 2)))
+        vel_loss = torch.sqrt(torch.sum(torch.pow(F.softshrink(v, args.v_max).abs()+1e-8, 2)))
 
-        acc_loss = args.acc_weight * torch.sqrt(torch.sum(torch.pow(F.softshrink(a, args.a_max), 2)))
-        vel_loss = args.vel_weight * torch.sqrt(torch.sum(torch.pow(F.softshrink(v, args.v_max), 2)))
-        rec_loss = args.rec_weight * F.l1_loss(output, target)
+        rec_loss = F.l1_loss(output, target)
         if args.TSP and epoch < args.TSP_epoch:
-            loss = rec_loss
+            loss = args.rec_weight * rec_loss
         else:
-            loss = rec_loss + vel_loss + acc_loss
-        optimizer.zero_grad()
+            loss = args.rec_weight * rec_loss + args.vel_weight * vel_loss + args.acc_weight * acc_loss
+
         loss.backward()
         optimizer.step()
 
@@ -176,17 +243,21 @@ def evaluate(args, epoch, model, data_loader, writer):
         if epoch != 0:
             for iter, data in enumerate(data_loader):
                 input, target, mean, std, norm = data
-                input = input.unsqueeze(1).to(args.device)
+                input = input.to(args.device)
                 target = target.to(args.device)
-                output = model(input).squeeze(1)
+
+                output = model(input)
+                # output = transforms.complex_abs(output)  # complex to real
+                # output = transforms.root_sum_of_squares(output, dim=1)
+                output = output.squeeze()
 
                 loss = F.l1_loss(output, target)
                 losses.append(loss.item())
 
-            x = model.get_trajectory()
+            x = model.module.get_trajectory()
             v, a = get_vel_acc(x)
-            acc_loss = args.acc_weight * torch.sqrt(torch.sum(torch.pow(F.softshrink(a, args.a_max), 2)))
-            vel_loss = args.vel_weight * torch.sqrt(torch.sum(torch.pow(F.softshrink(v, args.v_max), 2)))
+            acc_loss = torch.sqrt(torch.sum(torch.pow(F.softshrink(a, args.a_max), 2)))
+            vel_loss = torch.sqrt(torch.sum(torch.pow(F.softshrink(v, args.v_max), 2)))
             rec_loss = np.mean(losses)
 
             writer.add_scalar('Rec_Loss', rec_loss, epoch)
@@ -195,23 +266,28 @@ def evaluate(args, epoch, model, data_loader, writer):
             writer.add_scalar('Total_Loss',
                               rec_loss + acc_loss.detach().cpu().numpy() + vel_loss.detach().cpu().numpy(), epoch)
 
-        x = model.get_trajectory()
+        x = model.module.get_trajectory()
         v, a = get_vel_acc(x)
         if args.TSP and epoch < args.TSP_epoch:
             writer.add_figure('Scatter', plot_scatter(x.detach().cpu().numpy()), epoch)
         else:
             writer.add_figure('Trajectory', plot_trajectory(x.detach().cpu().numpy()), epoch)
+            writer.add_figure('Scatter', plot_scatter(x.detach().cpu().numpy()), epoch)
         writer.add_figure('Accelerations_plot', plot_acc(a.cpu().numpy(), args.a_max), epoch)
         writer.add_figure('Velocity_plot', plot_acc(v.cpu().numpy(), args.v_max), epoch)
-        writer.add_text('Coordinates', str(x.cpu().numpy()).replace(' ', ','), epoch)
-    return np.mean(losses), time.perf_counter() - start
+        writer.add_text('Coordinates', str(x.detach().cpu().numpy()).replace(' ', ','), epoch)
+    if epoch == 0:
+        return None, time.perf_counter() - start
+    else:
+        return np.mean(losses), time.perf_counter() - start
 
 
 def plot_scatter(x):
     fig = plt.figure(figsize=[10, 10])
     ax = fig.add_subplot(1, 1, 1)
     ax.axis([-165, 165, -165, 165])
-    ax.plot(x[:, 0], x[:, 1], '.')
+    for i in range(x.shape[0]):
+        ax.plot(x[i, :, 0], x[i, :, 1], '.')
     return fig
 
 
@@ -219,17 +295,18 @@ def plot_trajectory(x):
     fig = plt.figure(figsize=[10, 10])
     ax = fig.add_subplot(1, 1, 1)
     ax.axis([-165, 165, -165, 165])
-    ax.plot(x[:, 0], x[:, 1])
+    for i in range(x.shape[0]):
+        ax.plot(x[i, :, 0], x[i, :, 1])
     return fig
 
 
 def plot_acc(a, a_max=None):
     fig, ax = plt.subplots(2, sharex=True)
-
-    ax[0].plot(a[:, 0])
-    ax[1].plot(a[:, 1])
-    if a_max != None:
-        limit = np.ones(a.shape[0]) * a_max
+    for i in range(a.shape[0]):
+        ax[0].plot(a[i, :, 0])
+        ax[1].plot(a[i, :, 1])
+    if a_max is not None:
+        limit = np.ones(a.shape[1]) * a_max
         ax[1].plot(limit, color='red')
         ax[1].plot(-limit, color='red')
         ax[0].plot(limit, color='red')
@@ -248,15 +325,23 @@ def visualize(args, epoch, model, data_loader, writer):
     with torch.no_grad():
         for iter, data in enumerate(data_loader):
             input, target, mean, std, norm = data
-            input = input.unsqueeze(1).to(args.device)
+            input = input.to(args.device)
             target = target.unsqueeze(1).to(args.device)
+
             save_image(target, 'Target')
             if epoch != 0:
                 output = model(input.clone())
-                corrupted = model.subsampling(input)
+                # output = transforms.complex_abs(output)  # complex to real
+                # output = transforms.root_sum_of_squares(output, dim=1).unsqueeze(1)
+
+                corrupted = model.module.subsampling(input)
+                corrupted = corrupted[..., 0]  # complex to real
+                cor_all = transforms.root_sum_of_squares(corrupted,dim=1).unsqueeze(1)
 
                 save_image(output, 'Reconstruction')
-                save_image(corrupted, 'Corrupted')
+                save_image(corrupted[:, 0:1, :, :], 'Corrupted0')
+                save_image(corrupted[:, 1:2, :, :], 'Corrupted1')
+                save_image(cor_all, 'Corrupted')
                 save_image(torch.abs(target - output), 'Error')
             break
 
@@ -287,7 +372,10 @@ def build_model(args):
         decimation_rate=args.decimation_rate,
         res=args.resolution,
         trajectory_learning=args.trajectory_learning,
-        initialization=args.initialization
+        initialization=args.initialization,
+        SNR=args.SNR,
+        n_shots=args.n_shots,
+        interp_gap=args.interp_gap
     ).to(args.device)
     return model
 
@@ -306,8 +394,8 @@ def load_model(checkpoint_file):
 
 
 def build_optim(args, model):
-    optimizer = torch.optim.Adam([{'params': model.subsampling.parameters(), 'lr': args.sub_lr},
-                                  {'params': model.reconstruction_model.parameters()}], args.lr)
+    optimizer = torch.optim.Adam([{'params': model.module.subsampling.parameters(), 'lr': args.sub_lr},
+                                  {'params': model.module.reconstruction_model.parameters()}], args.lr)
     return optimizer
 
 
@@ -326,6 +414,7 @@ def train():
     with open(args.exp_dir + '/args.txt', "w") as text_file:
         print(vars(args), file=text_file)
 
+    args.checkpoint = f'summary/{args.test_name}/model.pt'
     if args.resume:
         checkpoint, model, optimizer = load_model(args.checkpoint)
         # args = checkpoint['args']
@@ -394,12 +483,12 @@ def create_arg_parser():
                         help='If set, use multiple GPUs using data parallelism')
     parser.add_argument('--device', type=str, default='cuda',
                         help='Which device to train on. Set to "cuda" to use the GPU')
-    parser.add_argument('--decimation-rate', default=24, type=int,
+    parser.add_argument('--decimation-rate', default=10, type=int,
                         help='Ratio of k-space columns to be sampled. If multiple values are '
                              'provided, then one of those is chosen uniformly at random for each volume.')
 
     # optimization parameters
-    parser.add_argument('--batch-size', default=16, type=int, help='Mini batch size')
+    parser.add_argument('--batch-size', default=9, type=int, help='Mini batch size')
     parser.add_argument('--num-epochs', type=int, default=40, help='Number of training epochs')
     parser.add_argument('--lr', type=float, default=0.001, help='Learning rate')
     parser.add_argument('--lr-step-size', type=int, default=30,
@@ -425,9 +514,15 @@ def create_arg_parser():
     parser.add_argument('--v-max', type=float, default=3.4, help='maximum velocity')
     parser.add_argument('--TSP', action='store_true', default=False,
                         help='Using the PILOT-TSP algorithm,if False using PILOT.')
-    parser.add_argument('--TSP-epoch', default=1, type=int, help='Epoch to preform the TSP reorder at')
+    parser.add_argument('--TSP-epoch', default=20, type=int, help='Epoch to preform the TSP reorder at')
     parser.add_argument('--initialization', type=str, default='spiral',
                         help='Trajectory initialization when using PILOT (spiral, EPI, rosette, uniform, gaussian).')
+    parser.add_argument('--SNR', action='store_true', default=False,
+                        help='add SNR decay')
+    parser.add_argument('--n-shots', type=int, default=8,
+                        help='Number of shots')
+    parser.add_argument('--interp_gap', type=int, default=10,
+                        help='number of interpolated points between 2 parameter points in the trajectory')
     return parser
 
 

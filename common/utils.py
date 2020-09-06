@@ -11,8 +11,8 @@ import pathlib
 
 def get_vel_acc(x):
     # calculate numerical derivatives of the trajectory
-    v = (x[1:, :] - x[:-1, :])
-    a = (v[1:, :] - v[:-1, :])
+    v = (x[:, 1:, :] - x[:, :-1, :])
+    a = (v[:, 1:, :] - v[:, :-1, :])
     return v, a
 
 def save_reconstructions(reconstructions, out_dir):

@@ -12,7 +12,7 @@ import numpy as np
 from runstats import Statistics
 from skimage.measure import compare_psnr, compare_ssim
 import sys
-sys.path.insert(0,'/home/tomerweiss/PILOT')
+sys.path.insert(0,'/home/tomerweiss/multiPILOT2')
 
 def mse(gt, pred):
     """ Compute Mean Squared Error (MSE) """
@@ -25,16 +25,16 @@ def nmse(gt, pred):
 def psnr(gt, pred):
     """ Compute Peak Signal to Noise Ratio metric (PSNR) """
     return compare_psnr(gt, pred, data_range=gt.max())
-#
-# def psnr1(gt, pred):
-#     """ Compute Peak Signal to Noise Ratio metric (PSNR) """
-#     gt = gt - gt.min()
-#     gt = gt / gt.max()
-#
-#     pred = pred - pred.min()
-#     pred = pred / pred.max()
-#
-#     return compare_psnr(gt, pred, data_range=gt.max())
+
+def psnr1(gt, pred):
+    """ Compute Peak Signal to Noise Ratio metric (PSNR) """
+    gt = gt - gt.min()
+    gt = gt / gt.max()
+
+    pred = pred - pred.min()
+    pred = pred / pred.max()
+
+    return compare_psnr(gt, pred, data_range=gt.max())
 
 
 def ssim(gt, pred):
@@ -42,12 +42,12 @@ def ssim(gt, pred):
     return compare_ssim(
         gt.transpose(1, 2, 0), pred.transpose(1, 2, 0), multichannel=True, data_range=gt.max()
     )
-#
-# def ssim1(gt, pred):
-#     """ Compute Structural Similarity Index Metric (SSIM). """
-#     return compare_ssim(
-#         gt, pred, multichannel=True, data_range=gt.max()
-#     )
+
+def ssim1(gt, pred):
+    """ Compute Structural Similarity Index Metric (SSIM). """
+    return compare_ssim(
+        gt, pred, multichannel=True, data_range=gt.max()
+    )
 
 METRIC_FUNCS = dict(
     MSE=mse,
@@ -90,33 +90,44 @@ class Metrics:
 
 def evaluate():
     args = create_arg_parser().parse_args()
-    args.target_path = f'/home/tomerweiss/Datasets/singlecoil_{args.data_split}'
-    args.predictions_path = f'/home/tomerweiss/PILOT/summary/{args.test_name}/rec'
-    print('/home/tomerweiss/PILOT/summary/'+args.test_name+'/rec')
+    args.target_path = f'{args.data_path}/multicoil_{args.data_split}'
+    args.predictions_path = f'/home/tomerweiss/multiPILOT2/summary/{args.test_name}/rec_cs'
+    print(args.predictions_path)
     metrics = Metrics(METRIC_FUNCS)
-
-    for tgt_file in pathlib.Path(args.target_path).iterdir():
-        with h5py.File(tgt_file) as target, h5py.File(
-          args.predictions_path +'/'+ tgt_file.name) as recons:
+    for tgt_file in pathlib.Path(args.predictions_path).iterdir():
+        print(args.predictions_path + '/' + tgt_file.name)
+        with h5py.File(tgt_file) as recons, h5py.File(
+          args.target_path + '/' + tgt_file.name) as target:
             if args.acquisition and args.acquisition == target.attrs['acquisition']:
                 continue
-            target = target['reconstruction_esc'].value
-            recons = recons['reconstruction'].value
+            target = target['reconstruction_rss'][()]
+            recons = recons['reconstruction'][()]
+            target = target[5:-2,:,:]
+            target-=target.min()
+            target/=target.max()
+            recons-=recons.min()
+            recons/=recons.max()
+            # print(f'{tgt_file.name}, {target.shape}, {recons.shape}')
+            # print(f'{target.min()} {target.max()}')
+            # print(f'{recons.min()} {recons.max()}')
+            # if target.shape == recons.shape:
             metrics.push(target, recons)
     return metrics
 
 def create_arg_parser():
     parser = ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('--test-name', type=str, default='test', help='name for the output dir')
+    parser.add_argument('--test-name', type=str, default='32/radial_fixed', help='name for the output dir')
     parser.add_argument('--data-split', choices=['val', 'test'], default='val',
                         help='Which data partition to run on: "val" or "test"')
-    parser.add_argument('--target-path', type=pathlib.Path, default=f'/home/tomerweiss/Datasets/singlecoil_test',
+    parser.add_argument('--target-path', type=pathlib.Path, default=f'/home/tomerweiss/Datasets/pd_only',
                         help='Path to the ground truth data')
     parser.add_argument('--predictions-path', type=pathlib.Path, default=f'summary/test/rec',
                         help='Path to reconstructions')
     parser.add_argument('--acquisition', choices=['PD', 'PDFS'], default=None,
                         help='If set, only volumes of the specified acquisition type are used '
                              'for evaluation. By default, all volumes are included.')
+    parser.add_argument('--data-path', type=pathlib.Path,
+                        default='/home/tomerweiss/Datasets/pd_only', help='Path to the dataset')
     return parser
     
 if __name__ == '__main__':

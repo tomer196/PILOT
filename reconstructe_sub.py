@@ -24,10 +24,15 @@ class DataTransform:
         image = transforms.complex_center_crop(image, (self.resolution, self.resolution))
         # image = transforms.complex_abs(image)
         image, mean, std = transforms.normalize_instance(image, eps=1e-11)
-        image = image.clamp(-6, 6)
-        kspace = transforms.fft2(image)
+        # image, mean, std = transforms.normalize_instance_per_channel(image, eps=1e-11)
+        # image = image.clamp(-6, 6)
+        # kspace = transforms.fft2(image)
 
-        return image, mean, std, fname, slice
+        target = transforms.to_tensor(target)
+        target, mean, std = transforms.normalize_instance(target, eps=1e-11)
+        # # target = transforms.normalize(target, mean, std)
+        # target = target.clamp(-6, 6)
+        return image, target, mean, std, attrs['norm'].astype(np.float32), fname, slice
 
 def create_data_loaders(args):
     data = SliceData(
@@ -43,11 +48,11 @@ def create_data_loaders(args):
     )
     return data_loader
 
-def load_model(checkpoint):
-    checkpoint = torch.load(checkpoint)
+def load_model(checkpoint_file):
+    checkpoint = torch.load(checkpoint_file)
     args = checkpoint['args']
     model = Subsampling_Model(
-        in_chans=15,
+        in_chans=1,
         out_chans=1,
         chans=args.num_chans,
         num_pool_layers=args.num_pools,
@@ -56,7 +61,9 @@ def load_model(checkpoint):
         res=args.resolution,
         trajectory_learning=args.trajectory_learning,
         initialization=args.initialization,
-        SNR=args.SNR
+        SNR=args.SNR,
+        n_shots=args.n_shots,
+        interp_gap=1
     ).to(args.device)
     if args.data_parallel:
         model = torch.nn.DataParallel(model)
@@ -67,14 +74,19 @@ def eval(args, model, data_loader):
     model.eval()
     reconstructions = defaultdict(list)
     with torch.no_grad():
-        for (input, mean, std, fnames, slices) in data_loader:
+        for (input, target, mean, std, norm, fnames, slices) in data_loader:
             input = input.to(args.device)
-            recons = model(input).to('cpu').squeeze(1)
-            recons = transforms.complex_abs(recons)  # complex to real
+            # recons = model(input).to('cpu').squeeze(1)
 
-            for i in range(recons.shape[0]):
-                recons[i] = recons[i] * std[i] + mean[i]
-                reconstructions[fnames[i]].append((slices[i].numpy(), recons[i].numpy()))
+            corrupted = model.module.subsampling(input).to('cpu')
+            corrupted = corrupted[..., 0]  # complex to real
+            cor_all = transforms.root_sum_of_squares(corrupted, dim=1)
+
+            for i in range(cor_all.shape[0]):
+                cor_all[i] = cor_all[i] * std[i] + mean[i]
+                reconstructions[fnames[i]].append((slices[i].numpy(), cor_all[i].numpy()))
+            # for i in range(corrupted.shape[0]):
+            #     reconstructions[fnames[i]].append((slices[i].numpy(), corrupted[i].numpy()))
 
     reconstructions = {
         fname: np.stack([pred for _, pred in sorted(slice_preds)])
@@ -85,9 +97,9 @@ def eval(args, model, data_loader):
 
 def reconstructe():
     args = create_arg_parser().parse_args(sys.argv[1:])
-    # args.checkpoint = f'summary/{args.test_name}/best_model.pt' # problamtic when using TSP
-    args.checkpoint = f'summary/{args.test_name}/best_model.pt'
-    args.out_dir = f'summary/{args.test_name}/rec'
+    args.checkpoint = f'summary/{args.test_name}/best_model.pt' # problamtic when using TSP
+    # args.checkpoint = f'summary/{args.test_name}/model.pt'
+    args.out_dir = f'summary/{args.test_name}/rec_sub'
 
     data_loader = create_data_loaders(args)
     model = load_model(args.checkpoint)
@@ -97,14 +109,14 @@ def reconstructe():
 
 def create_arg_parser():
     parser = Args()
-    parser.add_argument('--test-name', type=str, default='test', help='name for the output dir')
+    parser.add_argument('--test-name', type=str, default='32/radial_0.01_0.1_0.1_multiscale', help='name for the output dir')
     parser.add_argument('--data-split', choices=['val', 'test'],default='val',
                         help='Which data partition to run on: "val" or "test"')
     parser.add_argument('--checkpoint', type=pathlib.Path,default='summary/test/checkpoint/best_model.pt',
                         help='Path to the U-Net model')
     parser.add_argument('--out-dir', type=pathlib.Path,default='summary/test/rec',
                         help='Path to save the reconstructions to')
-    parser.add_argument('--batch-size', default=24, type=int, help='Mini-batch size')
+    parser.add_argument('--batch-size', default=30, type=int, help='Mini-batch size')
     parser.add_argument('--device', type=str, default='cuda', help='Which device to run on')
     parser.add_argument('--SNR', action='store_true', default=False,
                         help='add SNR decay')
