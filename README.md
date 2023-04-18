@@ -39,14 +39,11 @@ $ python exp.py
 ## Citing this Work
 Please cite our work if you find this approach useful in your research:
 ```latex
-@ARTICLE{weiss2019pilot,
-       author = {{Weiss}, Tomer and {Senouf}, Ortal and {Vedula}, Sanketh and
-         {Michailovich}, Oleg and {Zibulevsky}, Michael and {Bronstein}, Alex},
-       title = "{PILOT: Physics-Informed Learned Optimal Trajectories for Accelerated MRI}",
-       journal = {arXiv e-prints},
-       year = "2019",
-       archivePrefix = {arXiv},
-       eprint = {1909.05773},
+@article{weiss2021pilot,
+  title={{PILOT}: Physics-Informed Learned Optimized Trajectories for Accelerated {MRI}},
+  author={Weiss, Tomer and Senouf, Ortal and Vedula, Sanketh and Michailovich, Oleg and Zibulevsky, Michael and Bronstein, Alex and others},
+  journal={Machine Learning for Biomedical Imaging},
+  year={2021}
 }
 ```
 
